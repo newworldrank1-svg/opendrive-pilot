@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenDrive Pilot - Architecture & Simulation Workbench</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js for Telemetry Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0b0f17',
+                        cardBg: '#131b2a',
+                        cardBorder: '#1e293b',
+                        neonTeal: '#00f2fe',
+                        neonBlue: '#4facfe',
+                        neonGreen: '#10b981',
+                        neonAmber: '#f59e0b',
+                        neonRed: '#ef4444',
+                        accentPurple: '#8b5cf6'
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Fira Code', 'Monaco', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom scrollbar and glowing effects */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b0f17;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00f2fe;
+        }
+        .glow-teal {
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.25);
+        }
+        .glow-border {
+            border-color: rgba(0, 242, 254, 0.4);
+        }
+        .scanline {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0, 242, 254, 0.05) 50%,
+                rgba(0, 242, 254, 0.05)
+            );
+            background-size: 100% 4px;
+        }
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.8; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.02); }
+        }
+        .pulse-active {
+            animation: pulseGlow 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-darkBg text-slate-200 font-sans min-h-screen flex flex-col selection:bg-neonTeal selection:text-black">
+
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-cardBorder bg-cardBg/80 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-neonTeal to-neonBlue flex items-center justify-center text-black font-bold text-xl shadow-lg shadow-neonTeal/20">
+                    <i class="fa-solid me-0.5 fa-microchip"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg text-white tracking-wide flex items-center gap-2">
+                        OpenDrive<span class="text-neonTeal font-mono text-xs px-2 py-0.5 rounded bg-neonTeal/10 border border-neonTeal/30">v0.9.4-openpilot</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Autonomous Driver Assistance Software Architecture & Simulation</p>
+                </div>
+            </div>
+
+            <!-- Tab Buttons -->
+            <nav class="flex space-x-1 sm:space-x-2 bg-darkBg p-1 rounded-xl border border-cardBorder">
+                <button onclick="switchTab('simulator')" id="tab-simulator" class="tab-btn px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 flex items-center gap-2 bg-neonTeal text-black font-semibold shadow">
+                    <i class="fa-solid fa-gauge-high"></i> Live Simulation
+                </button>
+                <button onclick="switchTab('architecture')" id="tab-architecture" class="tab-btn px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 flex items-center gap-2 text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-diagram-project"></i> Pipeline Architecture
+                </button>
+                <button onclick="switchTab('blueprint')" id="tab-blueprint" class="tab-btn px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 flex items-center gap-2 text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-code"></i> Developer Blueprint
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+        <!-- TAB 1: SIMULATOR & TELEMETRY -->
+        <div id="view-simulator" class="space-y-6">
+            
+            <!-- Top Controls Header -->
+            <div class="bg-cardBg rounded-2xl p-4 sm:p-5 border border-cardBorder flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-4">
+                    <button id="toggle-sim-btn" onclick="toggleSimulation()" class="px-5 py-2.5 rounded-xl font-bold text-sm bg-neonTeal text-black hover:bg-cyan-300 transition shadow-lg shadow-neonTeal/20 flex items-center gap-2">
+                        <i class="fa-solid fa-pause" id="sim-btn-icon"></i> <span id="sim-btn-text">Pause Simulation</span>
+                    </button>
+                    <div class="flex items-center gap-2 text-xs font-mono bg-darkBg px-3 py-2 rounded-lg border border-cardBorder">
+                        <span class="w-2.5 h-2.5 rounded-full bg-neonGreen animate-pulse"></span>
+                        <span class="text-slate-400">STATE:</span>
+                        <span class="text-neonGreen font-bold" id="sys-status-text">ENGAGED (L2 AUTO)</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-6 text-xs font-mono">
+                    <div>
+                        <span class="text-slate-400">VISION INFERENCE:</span>
+                        <span class="text-neonTeal font-bold ml-1" id="val-fps">20 FPS</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400">MODEL CONFIDENCE:</span>
+                        <span class="text-neonGreen font-bold ml-1" id="val-confidence">98.4%</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400">CONTROL LATENCY:</span>
+                        <span class="text-neonBlue font-bold ml-1" id="val-latency">12.4 ms</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Canvas & Controls Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <!-- Left 8 Columns: Canvases -->
+                <div class="lg:col-span-8 space-y-4">
+                    <!-- Primary Vision Driver View Canvas -->
+                    <div class="bg-cardBg rounded-2xl p-4 border border-cardBorder relative overflow-hidden">
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-xs font-mono font-bold tracking-wider text-slate-400 uppercase flex items-center gap-2">
+                                <i class="fa-solid fa-camera text-neonTeal"></i> Front Road Vision Feed + AI Overlay (Supervision Neural Net)
+                            </span>
+                            <span class="text-xs font-mono text-neonTeal bg-neonTeal/10 px-2 py-0.5 rounded border border-neonTeal/30" id="vision-mode-badge">
+                                Model: Supercombo v3.1
+                            </span>
+                        </div>
+
+                        <!-- Canvas Box -->
+                        <div class="relative w-full aspect-[16/9] bg-black rounded-xl overflow-hidden border border-slate-800">
+                            <canvas id="roadCanvas" class="w-full h-full block"></canvas>
+                            <div class="scanline absolute inset-0 pointer-events-none"></div>
+
+                            <!-- Driver Monitoring Picture-in-Picture -->
+                            <div class="absolute bottom-3 right-3 w-36 h-28 bg-darkBg/90 backdrop-blur rounded-lg border border-cardBorder p-1.5 shadow-xl">
+                                <div class="text-[10px] font-mono text-slate-400 mb-1 flex items-center justify-between">
+                                    <span>DRIVER CAM</span>
+                                    <span id="dmon-status-dot" class="w-2 h-2 rounded-full bg-neonGreen"></span>
+                                </div>
+                                <div class="relative w-full h-[calc(100%-18px)] bg-black/80 rounded overflow-hidden">
+                                    <canvas id="driverCanvas" class="w-full h-full block"></canvas>
+                                </div>
+                            </div>
+
+                            <!-- Overlay Indicators on Canvas -->
+                            <div class="absolute top-3 left-3 flex flex-col gap-1.5 font-mono text-[11px] bg-darkBg/80 backdrop-blur p-2.5 rounded-lg border border-slate-800">
+                                <div class="text-slate-300">Target Velocity: <span id="overlay-target-speed" class="text-neonTeal font-bold">65 mph</span></div>
+                                <div class="text-slate-300">Actual Velocity: <span id="overlay-actual-speed" class="text-white font-bold">64.8 mph</span></div>
+                                <div class="text-slate-300">Lead Vehicle Dist: <span id="overlay-lead-dist" class="text-neonAmber font-bold">38.2 m</span></div>
+                                <div class="text-slate-300">Steer Torque Act: <span id="overlay-torque" class="text-neonBlue font-bold">0.4 N·m</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tactical Top-Down View & CAN Telemetry -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Top Down World Model Canvas -->
+                        <div class="bg-cardBg rounded-2xl p-4 border border-cardBorder">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs font-mono font-bold text-slate-400 uppercase flex items-center gap-2">
+                                    <i class="fa-solid fa-map text-neonBlue"></i> Top-Down Planar Trajectory
+                                </span>
+                                <span class="text-[10px] font-mono text-slate-400">MPC Planner</span>
+                            </div>
+                            <div class="w-full h-48 bg-black/60 rounded-xl overflow-hidden border border-slate-800 relative">
+                                <canvas id="topDownCanvas" class="w-full h-full block"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Real-time Live Torque Chart -->
+                        <div class="bg-cardBg rounded-2xl p-4 border border-cardBorder flex flex-col justify-between">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs font-mono font-bold text-slate-400 uppercase flex items-center gap-2">
+                                    <i class="fa-solid fa-chart-line text-neonGreen"></i> EPS Torque & Steering Delta
+                                </span>
+                                <span class="text-[10px] font-mono text-neonGreen">100Hz Loop</span>
+                            </div>
+                            <div class="w-full h-48 relative">
+                                <canvas id="torqueChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right 4 Columns: Interactive Simulation Parameters -->
+                <div class="lg:col-span-4 space-y-4">
+                    
+                    <!-- Driving Simulation Environment Settings -->
+                    <div class="bg-cardBg rounded-2xl p-5 border border-cardBorder space-y-5">
+                        <h3 class="text-sm font-bold font-mono text-white tracking-wide border-b border-cardBorder pb-2 flex items-center gap-2">
+                            <i class="fa-solid fa-sliders text-neonTeal"></i> Real-Time Environment Controls
+                        </h3>
+
+                        <!-- Cruise Speed Slider -->
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs font-mono">
+                                <label class="text-slate-300">Set Cruise Speed</label>
+                                <span class="text-neonTeal font-bold"><span id="val-set-speed">65</span> mph</span>
+                            </div>
+                            <input type="range" id="input-speed" min="20" max="90" value="65" class="w-full accent-neonTeal bg-darkBg rounded-lg h-2 cursor-pointer">
+                        </div>
+
+                        <!-- Lead Car Distance -->
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs font-mono">
+                                <label class="text-slate-300">Lead Car Spacing</label>
+                                <span class="text-neonAmber font-bold"><span id="val-lead-dist">40</span> meters</span>
+                            </div>
+                            <input type="range" id="input-lead-dist" min="10" max="100" value="40" class="w-full accent-neonAmber bg-darkBg rounded-lg h-2 cursor-pointer">
+                        </div>
+
+                        <!-- Lead Car Speed Relative -->
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs font-mono">
+                                <label class="text-slate-300">Lead Car Speed Offset</label>
+                                <span class="text-slate-300 font-bold"><span id="val-lead-speed-offset">0</span> mph</span>
+                            </div>
+                            <input type="range" id="input-lead-speed" min="-25" max="25" value="0" class="w-full accent-slate-400 bg-darkBg rounded-lg h-2 cursor-pointer">
+                        </div>
+
+                        <!-- Steering Override / Driver Torque Input -->
+                        <div class="space-y-2 border-t border-cardBorder pt-3">
+                            <div class="flex justify-between text-xs font-mono">
+                                <label class="text-slate-300">Manual Driver Override Torque</label>
+                                <span class="text-neonRed font-bold"><span id="val-steer-override">0.0</span> N·m</span>
+                            </div>
+                            <input type="range" id="input-steer-override" min="-3.0" max="3.0" step="0.1" value="0.0" class="w-full accent-neonRed bg-darkBg rounded-lg h-2 cursor-pointer">
+                            <p class="text-[10px] text-slate-500 font-mono">Applying torque &gt; 1.8 N·m overrides autopilot safety latch.</p>
+                        </div>
+
+                        <!-- Weather & Vision Conditions -->
+                        <div class="space-y-2 border-t border-cardBorder pt-3">
+                            <label class="text-xs font-mono text-slate-300 block">Vision Condition / Weather</label>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button onclick="setWeather('clear')" id="weather-clear" class="weather-btn px-2 py-1.5 rounded-lg text-xs font-mono border border-neonTeal bg-neonTeal/20 text-neonTeal">Clear</button>
+                                <button onclick="setWeather('night')" id="weather-night" class="weather-btn px-2 py-1.5 rounded-lg text-xs font-mono border border-cardBorder bg-darkBg text-slate-400 hover:text-white">Night</button>
+                                <button onclick="setWeather('fog')" id="weather-fog" class="weather-btn px-2 py-1.5 rounded-lg text-xs font-mono border border-cardBorder bg-darkBg text-slate-400 hover:text-white">Heavy Fog</button>
+                            </div>
+                        </div>
+
+                        <!-- Driver Attention State Toggle -->
+                        <div class="space-y-2 border-t border-cardBorder pt-3">
+                            <label class="text-xs font-mono text-slate-300 block">Driver Attentiveness State</label>
+                            <select id="select-driver-state" onchange="updateDriverState(this.value)" class="w-full bg-darkBg border border-cardBorder rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-neonTeal">
+                                <option value="attentive">Attentive (Eyes Ahead)</option>
+                                <option value="distracted">Distracted (Looking Down/Phone)</option>
+                                <option value="drowsy">Eyes Closed / Sleeping</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- CAN Bus Simulated Raw Packet Feed -->
+                    <div class="bg-cardBg rounded-2xl p-4 border border-cardBorder space-y-3">
+                        <div class="flex items-center justify-between border-b border-cardBorder pb-2">
+                            <span class="text-xs font-mono font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-terminal text-neonGreen"></i> SocketCAN Message Bus (can0)
+                            </span>
+                            <span class="text-[10px] font-mono text-slate-500">500 kbps</span>
+                        </div>
+                        <div class="font-mono text-[11px] h-36 bg-black/80 rounded-lg p-2.5 overflow-y-auto text-emerald-400 space-y-1" id="can-log-container">
+                            <!-- Populated via JavaScript -->
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: PIPELINE ARCHITECTURE -->
+        <div id="view-architecture" class="hidden space-y-8">
+            <div class="bg-cardBg rounded-2xl p-6 border border-cardBorder">
+                <div class="max-w-3xl">
+                    <h2 class="text-xl font-bold text-white mb-2 font-mono flex items-center gap-2">
+                        <i class="fa-solid fa-network-wired text-neonTeal"></i> Open-Source Autonomous Driving Pipeline
+                    </h2>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        An end-to-end vision-based driving architecture operates on a high-frequency real-time execution loop. Cameras and CAN messages feed an on-device neural network that directly outputs trajectory points rather than intermediate hand-coded bounding boxes alone.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Architecture Nodes Visualizer Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4 relative">
+
+                <!-- Step 1: Sensors & Input -->
+                <div onclick="selectArchNode('sensors')" id="node-sensors" class="arch-card bg-cardBg hover:bg-cardBg/80 p-5 rounded-2xl border border-neonTeal/50 cursor-pointer transition-all duration-300 relative group glow-teal">
+                    <div class="text-neonTeal mb-3 text-2xl">
+                        <i class="fa-solid fa-video"></i>
+                    </div>
+                    <span class="text-[10px] font-mono text-neonTeal bg-neonTeal/10 px-2 py-0.5 rounded border border-neonTeal/20">STAGE 1</span>
+                    <h3 class="text-base font-bold text-white mt-2 mb-1">Sensors & Hardware</h3>
+                    <p class="text-xs text-slate-400">Road camera (1280x960 20fps), driver monitoring cam, vehicle CAN telemetry.</p>
+                </div>
+
+                <!-- Step 2: Vision Neural Net -->
+                <div onclick="selectArchNode('vision')" id="node-vision" class="arch-card bg-cardBg hover:bg-cardBg/80 p-5 rounded-2xl border border-cardBorder cursor-pointer transition-all duration-300 relative group">
+                    <div class="text-neonBlue mb-3 text-2xl">
+                        <i class="fa-solid fa-brain"></i>
+                    </div>
+                    <span class="text-[10px] font-mono text-neonBlue bg-neonBlue/10 px-2 py-0.5 rounded border border-neonBlue/20">STAGE 2</span>
+                    <h3 class="text-base font-bold text-white mt-2 mb-1">Vision NN Model</h3>
+                    <p class="text-xs text-slate-400">Supercombo ONNX model. Predicts 3D road paths, lane lines & lead vehicles.</p>
+                </div>
+
+                <!-- Step 3: Planner & Control -->
+                <div onclick="selectArchNode('planner')" id="node-planner" class="arch-card bg-cardBg hover:bg-cardBg/80 p-5 rounded-2xl border border-cardBorder cursor-pointer transition-all duration-300 relative group">
+                    <div class="text-neonGreen mb-3 text-2xl">
+                        <i class="fa-solid fa-route"></i>
+                    </div>
+                    <span class="text-[10px] font-mono text-neonGreen bg-neonGreen/10 px-2 py-0.5 rounded border border-neonGreen/20">STAGE 3</span>
+                    <h3 class="text-base font-bold text-white mt-2 mb-1">Planner & MPC</h3>
+                    <p class="text-xs text-slate-400">Model Predictive Control generates smooth trajectory curves & velocity profiles.</p>
+                </div>
+
+                <!-- Step 4: CAN Control & Actuators -->
+                <div onclick="selectArchNode('actuators')" id="node-actuators" class="arch-card bg-cardBg hover:bg-cardBg/80 p-5 rounded-2xl border border-cardBorder cursor-pointer transition-all duration-300 relative group">
+                    <div class="text-neonAmber mb-3 text-2xl">
+                        <i class="fa-solid fa-car"></i>
+                    </div>
+                    <span class="text-[10px] font-mono text-neonAmber bg-neonAmber/10 px-2 py-0.5 rounded border border-neonAmber/20">STAGE 4</span>
+                    <h3 class="text-base font-bold text-white mt-2 mb-1">CAN Actuators</h3>
+                    <p class="text-xs text-slate-400">Panda hardware interface injects EPS torque commands and brake/gas signals.</p>
+                </div>
+
+                <!-- Step 5: Cloud & Fleet Loop -->
+                <div onclick="selectArchNode('cloud')" id="node-cloud" class="arch-card bg-cardBg hover:bg-cardBg/80 p-5 rounded-2xl border border-cardBorder cursor-pointer transition-all duration-300 relative group">
+                    <div class="text-accentPurple mb-3 text-2xl">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                    </div>
+                    <span class="text-[10px] font-mono text-accentPurple bg-accentPurple/10 px-2 py-0.5 rounded border border-accentPurple/20">STAGE 5</span>
+                    <h3 class="text-base font-bold text-white mt-2 mb-1">Fleet Data Loop</h3>
+                    <p class="text-xs text-slate-400">User disengagement clips uploaded for automated retraining & OTA model updates.</p>
+                </div>
+
+            </div>
+
+            <!-- Detailed Node Explanation Box -->
+            <div id="arch-details-box" class="bg-cardBg rounded-2xl p-6 border border-cardBorder space-y-4">
+                <!-- Dynamically updated by JS -->
+            </div>
+        </div>
+
+        <!-- TAB 3: DEVELOPER BLUEPRINT -->
+        <div id="view-blueprint" class="hidden space-y-8">
+            <div class="bg-cardBg rounded-2xl p-6 border border-cardBorder">
+                <h2 class="text-xl font-bold text-white mb-2 font-mono flex items-center gap-2">
+                    <i class="fa-solid fa-terminal text-neonTeal"></i> Developer Blueprint & System Architecture Specs
+                </h2>
+                <p class="text-sm text-slate-400">
+                    A modern open-source driver assistance system relies on low-latency Inter-Process Communication (IPC), asynchronous camera pipelines, strict safety checks, and hardware CAN interfaces.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Core Tech Stack Stack Card -->
+                <div class="bg-cardBg rounded-2xl p-6 border border-cardBorder space-y-4">
+                    <h3 class="text-base font-bold text-white font-mono border-b border-cardBorder pb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-layer-group text-neonBlue"></i> Production Software Tech Stack
+                    </h3>
+                    <div class="space-y-3 font-mono text-xs">
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonTeal font-bold">IPC & Serialization:</span>
+                            <p class="text-slate-300 mt-1">Cap'n Proto (`cereal`) over Unix domain sockets / ZMQ. Zerocopy serialization ensures sub-millisecond inter-process messaging between vision, planner, and control daemons.</p>
+                        </div>
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonBlue font-bold">Neural Network Engine:</span>
+                            <p class="text-slate-300 mt-1">PyTorch for offline training. Exported to ONNX / TensorRT / SNPE (Qualcomm Snapdragon NPU) for execution at 20 FPS with minimal power consumption.</p>
+                        </div>
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonGreen font-bold">Real-time Controllers:</span>
+                            <p class="text-slate-300 mt-1">C++ and Python. Model Predictive Control (MPC) running at 20Hz calculates path trajectories, while a 100Hz PID/INDI loop regulates EPS steering torque.</p>
+                        </div>
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonAmber font-bold">Hardware Abstraction:</span>
+                            <p class="text-slate-300 mt-1">SocketCAN + STM32 bridge (Panda firmware). Isolates high-level Android/Linux OS from raw vehicle CAN buses with hardware safety enforcement.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ISO 26262 Safety Rules Card -->
+                <div class="bg-cardBg rounded-2xl p-6 border border-cardBorder space-y-4">
+                    <h3 class="text-base font-bold text-white font-mono border-b border-cardBorder pb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-shield-halved text-neonRed"></i> Functional Safety & ISO 26262 Rules
+                    </h3>
+                    <div class="space-y-3 font-mono text-xs">
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonRed font-bold">1. Maximum Steering Torque Limit:</span>
+                            <p class="text-slate-300 mt-1">The system must never exert enough torque to overpower human hands. Drivers can easily override steering at any moment.</p>
+                        </div>
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonAmber font-bold">2. Rate-of-Change Torque Slew Rate:</span>
+                            <p class="text-slate-300 mt-1">Max rate of torque change is capped (e.g., max 530 units/sec) to prevent sudden jerky steering movements if neural net outputs jump.</p>
+                        </div>
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonTeal font-bold">3. Driver Monitoring Interlock:</span>
+                            <p class="text-slate-300 mt-1">If driver eyes remain off the road for &gt; 6 seconds, system initiates escalating audio alerts, then disengages and decelerates safely.</p>
+                        </div>
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder">
+                            <span class="text-neonGreen font-bold">4. Panda Hardware Safety Latch:</span>
+                            <p class="text-slate-300 mt-1">Safety code is embedded in the isolated STM32 chip in C. If main OS crashes or hangs, hardware instantly drops CAN transmission controls.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step-by-Step Implementation Roadmap -->
+            <div class="bg-cardBg rounded-2xl p-6 border border-cardBorder space-y-6">
+                <h3 class="text-base font-bold text-white font-mono border-b border-cardBorder pb-2 flex items-center gap-2">
+                    <i class="fa-solid fa-list-check text-neonTeal"></i> Roadmap: Building an Open Driver-Assist Stack
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono">
+                    <div class="bg-darkBg p-4 rounded-xl border border-cardBorder space-y-2">
+                        <div class="text-neonTeal font-bold text-sm">Phase 1: CAN Decoding</div>
+                        <p class="text-slate-300">Tap into OBD-II or camera harness with a Panda/CAN analyzer. Reverse engineer steering angle, wheel speed, and brake message IDs using Cabana or Wireshark.</p>
+                    </div>
+
+                    <div class="bg-darkBg p-4 rounded-xl border border-cardBorder space-y-2">
+                        <div class="text-neonBlue font-bold text-sm">Phase 2: Dataset Collection</div>
+                        <p class="text-slate-300">Mount wide-angle camera. Record dual video + synced CAN telemetry logs across thousands of highway miles across varied lighting and weather conditions.</p>
+                    </div>
+
+                    <div class="bg-darkBg p-4 rounded-xl border border-cardBorder space-y-2">
+                        <div class="text-neonGreen font-bold text-sm">Phase 3: Model Training</div>
+                        <p class="text-slate-300">Train an end-to-end multi-task Vision Transformer or CNN to regress 3D polyline paths, lane boundaries, lead car distances, and driver gaze points.</p>
+                    </div>
+
+                    <div class="bg-darkBg p-4 rounded-xl border border-cardBorder space-y-2">
+                        <div class="text-neonAmber font-bold text-sm">Phase 4: Hardware Control</div>
+                        <p class="text-slate-300">Compile model to ONNX. Connect planner output to PID/MPC controller and feed CAN frame generator via isolated Panda MCU firmware.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-cardBorder bg-cardBg py-4 text-center text-xs font-mono text-slate-500">
+        OpenDrive Pilot System Dashboard &copy; 2026 | Educational Open-Source Driving Assist Architecture Simulator
+    </footer>
+
+    <script>
+        // Global State Object
+        const state = {
+            isRunning: true,
+            speed: 65,            // Set target speed in mph
+            actualSpeed: 64.8,    // Simulated current speed
+            leadDistance: 40,     // distance in meters
+            leadSpeedOffset: 0,   // mph offset
+            steerOverride: 0.0,   // N*m torque manual input
+            weather: 'clear',     // clear, night, fog
+            driverAttentive: 'attentive', // attentive, distracted, drowsy
+            carX: 0,              // Lateral position offset meters
+            steeringAngle: 0,     // Steering degrees
+            torqueApplied: 0,     // N*m calculated
+            confidence: 98.4,
+            fps: 20,
+            latency: 12.4,
+            simTime: 0
+        };
+
+        // UI Tabs Switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-neonTeal', 'text-black', 'font-semibold', 'shadow');
+                btn.classList.add('text-slate-400');
+            });
+
+            const activeBtn = document.getElementById(`tab-${tabName}`);
+            activeBtn.classList.add('bg-neonTeal', 'text-black', 'font-semibold', 'shadow');
+            activeBtn.classList.remove('text-slate-400');
+
+            document.getElementById('view-simulator').classList.add('hidden');
+            document.getElementById('view-architecture').classList.add('hidden');
+            document.getElementById('view-blueprint').classList.add('hidden');
+
+            document.getElementById(`view-${tabName}`).classList.remove('hidden');
+
+            if (tabName === 'architecture' && !window.archNodeLoaded) {
+                selectArchNode('sensors');
+                window.archNodeLoaded = true;
+            }
+        }
+
+        // Toggle Pause/Play
+        function toggleSimulation() {
+            state.isRunning = !state.isRunning;
+            const btnText = document.getElementById('sim-btn-text');
+            const btnIcon = document.getElementById('sim-btn-icon');
+            const statusText = document.getElementById('sys-status-text');
+
+            if (state.isRunning) {
+                btnText.textContent = "Pause Simulation";
+                btnIcon.className = "fa-solid fa-pause";
+                statusText.textContent = "ENGAGED (L2 AUTO)";
+                statusText.className = "text-neonGreen font-bold";
+            } else {
+                btnText.textContent = "Resume Simulation";
+                btnIcon.className = "fa-solid fa-play";
+                statusText.textContent = "STANDBY / PAUSED";
+                statusText.className = "text-neonAmber font-bold";
+            }
+        }
+
+        // Weather Change Handler
+        function setWeather(mode) {
+            state.weather = mode;
+            document.querySelectorAll('.weather-btn').forEach(b => {
+                b.className = "weather-btn px-2 py-1.5 rounded-lg text-xs font-mono border border-cardBorder bg-darkBg text-slate-400 hover:text-white";
+            });
+            const activeBtn = document.getElementById(`weather-${mode}`);
+            activeBtn.className = "weather-btn px-2 py-1.5 rounded-lg text-xs font-mono border border-neonTeal bg-neonTeal/20 text-neonTeal font-bold";
+        }
+
+        // Driver Monitoring State Handler
+        function updateDriverState(val) {
+            state.driverAttentive = val;
+            const dot = document.getElementById('dmon-status-dot');
+            if (val === 'attentive') {
+                dot.className = "w-2 h-2 rounded-full bg-neonGreen";
+            } else if (val === 'distracted') {
+                dot.className = "w-2 h-2 rounded-full bg-neonAmber animate-ping";
+            } else {
+                dot.className = "w-2 h-2 rounded-full bg-neonRed animate-pulse";
+            }
+        }
+
+        // Controls Bindings
+        document.getElementById('input-speed').addEventListener('input', (e) => {
+            state.speed = parseFloat(e.target.value);
+            document.getElementById('val-set-speed').textContent = state.speed;
+        });
+
+        document.getElementById('input-lead-dist').addEventListener('input', (e) => {
+            state.leadDistance = parseFloat(e.target.value);
+            document.getElementById('val-lead-dist').textContent = state.leadDistance;
+        });
+
+        document.getElementById('input-lead-speed').addEventListener('input', (e) => {
+            state.leadSpeedOffset = parseFloat(e.target.value);
+            document.getElementById('val-lead-speed-offset').textContent = state.leadSpeedOffset > 0 ? `+${e.target.value}` : e.target.value;
+        });
+
+        document.getElementById('input-steer-override').addEventListener('input', (e) => {
+            state.steerOverride = parseFloat(e.target.value);
+            document.getElementById('val-steer-override').textContent = state.steerOverride.toFixed(1);
+        });
+
+        const archDetails = {
+            sensors: {
+                title: "Stage 1: Multi-Sensor Ingestion & CAN Bus Driver",
+                color: "neonTeal",
+                desc: "The hardware capture module reads road-facing and cabin-facing camera sensor frames alongside raw vehicle dynamics telemetry.",
+                bullets: [
+                    "Main Camera: Sony IMX274 / AR0231 (1280x960 @ 20 FPS HDR)",
+                    "Driver Monitoring Camera: Wide-angle IR sensor with 940nm LEDs",
+                    "CAN Telemetry: Vehicle speed, wheel tick counts, steering wheel angle, yaw rate, turn signals",
+                    "Synchronization: Hardware GPIO frame sync triggers hardware interrupts to match CAN message timestamps"
+                ]
+            },
+            vision: {
+                title: "Stage 2: Supercombo Deep Neural Network Inference",
+                color: "neonBlue",
+                desc: "A multi-task deep neural network (Supercombo) runs on GPU or NPU hardware to predict road geometry and objects directly in 3D space.",
+                bullets: [
+                    "Input Stack: 2 consecutive video frames (yuv420 format) + desire vector (lane change request)",
+                    "Path Outputs: 33 trajectory points with confidence bounds (x, y, z positions for 10 seconds ahead)",
+                    "Lane Lines & Edge Bounds: Left lane, right lane, and road edge 3D polylines",
+                    "Lead Vehicle Tracking: 3D bounding boxes + distance and relative speed estimates",
+                    "Driver State Output: 3D head pose vector, eye closure probabilities, attentiveness score"
+                ]
+            },
+            planner: {
+                title: "Stage 3: Trajectory Planner & Model Predictive Control (MPC)",
+                color: "neonGreen",
+                desc: "Converts neural network spatial predictions into smooth, comfortable acceleration and steering targets that satisfy vehicle dynamics constraints.",
+                bullets: [
+                    "Longitudinal Planner: Solves optimal speed profile respecting lead car distance, curves, and set cruise speed",
+                    "Lateral Planner: Fits clothoid curves to vision path outputs with low-pass filtering",
+                    "Model Predictive Controller: 20Hz optimizer generating target steering curvature while obeying lateral acceleration limits (max 2.0 m/s²)"
+                ]
+            },
+            actuators: {
+                title: "Stage 4: CAN Frame Generation & Hardware Actuators",
+                color: "neonAmber",
+                desc: "Translates planner targets into specific vehicle factory CAN bus commands to command steering torque and pedal positions.",
+                bullets: [
+                    "EPS Steering Torque: Controls Electric Power Steering directly via torque commands (not angle directly)",
+                    "Longitudinal Control: Sends radar-emulated braking & gas pedal commands over chassis CAN bus",
+                    "Hardware Safety Bridge: Panda micro-controller verifies rate limits and disengages instantly on driver override touch"
+                ]
+            },
+            cloud: {
+                title: "Stage 5: Fleet Logging, Offroad Upload & Active Learning",
+                color: "accentPurple",
+                desc: "Forms a continuous machine learning feedback loop using real-world driver interventions to improve the model.",
+                bullets: [
+                    "Disengagement Logging: Automatically tags 10-second video clips prior to driver manual disengagements",
+                    "Secure Cloud Storage: Uploads compressed logs over Wi-Fi/LTE to S3 data lake",
+                    "Automated Retraining: Annotations and auto-labelers refine model on edge cases (e.g., construction zones, bad weather)",
+                    "Over-The-Air (OTA): Deploys updated ONNX models to the fleet seamlessly"
+                ]
+            }
+        };
+
+        function selectArchNode(key) {
+            document.querySelectorAll('.arch-card').forEach(card => {
+                card.classList.remove('border-neonTeal', 'border-neonBlue', 'border-neonGreen', 'border-neonAmber', 'border-accentPurple', 'glow-teal');
+                card.classList.add('border-cardBorder');
+            });
+
+            const selectedCard = document.getElementById(`node-${key}`);
+            const data = archDetails[key];
+
+            selectedCard.classList.remove('border-cardBorder');
+            selectedCard.classList.add(`border-${data.color}`, 'glow-teal');
+
+            const box = document.getElementById('arch-details-box');
+            box.innerHTML = `
+                <div class="flex items-center justify-between border-b border-cardBorder pb-3">
+                    <h3 class="text-lg font-bold font-mono text-${data.color} flex items-center gap-2">
+                        <i class="fa-solid fa-circle-dot"></i> ${data.title}
+                    </h3>
+                    <span class="text-xs font-mono text-slate-400">Architecture Component</span>
+                </div>
+                <p class="text-sm text-slate-300 leading-relaxed">${data.desc}</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                    ${data.bullets.map(b => `
+                        <div class="bg-darkBg p-3 rounded-xl border border-cardBorder flex items-start gap-2.5 text-xs font-mono text-slate-300">
+                            <i class="fa-solid fa-check text-${data.color} mt-0.5"></i>
+                            <span>${b}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // Initialize Chart.js Torque Graphic
+        const torqueCtx = document.getElementById('torqueChart').getContext('2d');
+        const torqueChart = new Chart(torqueCtx, {
+            type: 'line',
+            data: {
+                labels: Array(25).fill(''),
+                datasets: [
+                    {
+                        label: 'Target Steering Torque (N·m)',
+                        data: Array(25).fill(0),
+                        borderColor: '#00f2fe',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Driver Override Torque (N·m)',
+                        data: Array(25).fill(0),
+                        borderColor: '#ef4444',
+                        borderWidth: 1.5,
+                        borderDash: [4, 4],
+                        tension: 0.2,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: { display: false },
+                    y: {
+                        min: -3.0,
+                        max: 3.0,
+                        grid: { color: '#1e293b' },
+                        ticks: { color: '#64748b', font: { family: 'monospace', size: 10 } }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: { color: '#94a3b8', font: { family: 'monospace', size: 10 } }
+                    }
+                }
+            }
+        });
+
+        const roadCanvas = document.getElementById('roadCanvas');
+        const roadCtx = roadCanvas.getContext('2d');
+        const topCanvas = document.getElementById('topDownCanvas');
+        const topCtx = topCanvas.getContext('2d');
+        const driverCanvas = document.getElementById('driverCanvas');
+        const driverCtx = driverCanvas.getContext('2d');
+
+        function resizeCanvases() {
+            roadCanvas.width = roadCanvas.parentElement.clientWidth;
+            roadCanvas.height = roadCanvas.parentElement.clientHeight;
+
+            topCanvas.width = topCanvas.parentElement.clientWidth;
+            topCanvas.height = topCanvas.parentElement.clientHeight;
+
+            driverCanvas.width = driverCanvas.parentElement.clientWidth;
+            driverCanvas.height = driverCanvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvases);
+        resizeCanvases();
+
+        // Main Simulation Loop Variables
+        let offsetStep = 0;
+        const canLogContainer = document.getElementById('can-log-container');
+
+        // Append simulated CAN message to feed
+        function addCanLog(id, dlc, bytes) {
+            if (!state.isRunning) return;
+            const line = document.createElement('div');
+            line.className = "flex justify-between hover:bg-white/5 px-1 rounded";
+            line.innerHTML = `<span>can0  ${id}  [${dlc}]</span> <span class="text-slate-400">${bytes}</span>`;
+            canLogContainer.appendChild(line);
+            if (canLogContainer.children.length > 20) {
+                canLogContainer.removeChild(canLogContainer.firstChild);
+            }
+            canLogContainer.scrollTop = canLogContainer.scrollHeight;
+        }
+
+        // Main Animation & Simulation Frame
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (state.isRunning) {
+                state.simTime += 0.05;
+                offsetStep += state.speed * 0.15;
+
+                // Physics Simulation Calculations
+                const speedDiff = (state.speed + state.leadSpeedOffset) - state.actualSpeed;
+                state.actualSpeed += speedDiff * 0.02;
+
+                // Dynamic lateral movement curves (highway gentle turns)
+                const pathCurve = Math.sin(state.simTime * 0.3) * 1.8;
+                
+                // Steering reaction calculation
+                if (Math.abs(state.steerOverride) > 1.8) {
+                    // Driver disengaged auto torque
+                    state.carX += state.steerOverride * 0.05;
+                    state.torqueApplied = state.steerOverride;
+                    document.getElementById('sys-status-text').textContent = "OVERRIDDEN (DRIVER MANUAL)";
+                    document.getElementById('sys-status-text').className = "text-neonRed font-bold";
+                } else {
+                    // Openpilot auto centring
+                    state.carX += (pathCurve - state.carX) * 0.08;
+                    state.torqueApplied = (pathCurve - state.carX) * 0.6 + state.steerOverride;
+                    if (document.getElementById('sys-status-text').textContent.includes("OVERRIDDEN")) {
+                        document.getElementById('sys-status-text').textContent = "ENGAGED (L2 AUTO)";
+                        document.getElementById('sys-status-text').className = "text-neonGreen font-bold";
+                    }
+                }
+
+                // Confidence variations based on weather
+                if (state.weather === 'fog') {
+                    state.confidence = (91 + Math.random() * 3).toFixed(1);
+                } else if (state.weather === 'night') {
+                    state.confidence = (95 + Math.random() * 2).toFixed(1);
+                } else {
+                    state.confidence = (98 + Math.random() * 1).toFixed(1);
+                }
+
+                // Push dynamic values to overlay text
+                document.getElementById('val-confidence').textContent = `${state.confidence}%`;
+                document.getElementById('val-latency').textContent = `${(11.8 + Math.random() * 1.2).toFixed(1)} ms`;
+                document.getElementById('val-fps').textContent = `${Math.floor(19 + Math.random() * 2)} FPS`;
+
+                document.getElementById('overlay-target-speed').textContent = `${state.speed} mph`;
+                document.getElementById('overlay-actual-speed').textContent = `${state.actualSpeed.toFixed(1)} mph`;
+                document.getElementById('overlay-lead-dist').textContent = `${state.leadDistance.toFixed(1)} m`;
+                document.getElementById('overlay-torque').textContent = `${state.torqueApplied.toFixed(1)} N·m`;
+
+                // Update Chart Data
+                const chartTargetData = torqueChart.data.datasets[0].data;
+                const chartOverrideData = torqueChart.data.datasets[1].data;
+                chartTargetData.shift();
+                chartTargetData.push(state.torqueApplied);
+                chartOverrideData.shift();
+                chartOverrideData.push(state.steerOverride);
+                torqueChart.update('none');
+
+                // Generate CAN Messages
+                if (Math.random() > 0.4) {
+                    const hexTorque = (Math.floor((state.torqueApplied + 3) * 100)).toString(16).padStart(4, '0');
+                    const hexSpeed = (Math.floor(state.actualSpeed * 10)).toString(16).padStart(4, '0');
+                    addCanLog('0x2E4', '8', `00 ${hexTorque.substring(0,2)} ${hexTorque.substring(2)} ${hexSpeed.substring(0,2)} 00 FF 12`);
+                }
+            }
+
+            // --- DRAW ROAD VISION CANVAS ---
+            const rw = roadCanvas.width;
+            const rh = roadCanvas.height;
+            const horizon = rh * 0.48;
+
+            // Background / Sky
+            if (state.weather === 'night') {
+                roadCtx.fillStyle = '#030712';
+            } else if (state.weather === 'fog') {
+                roadCtx.fillStyle = '#1e293b';
+            } else {
+                roadCtx.fillStyle = '#0b1329';
+            }
+            roadCtx.fillRect(0, 0, rw, rh);
+
+            // Horizon Gradient & Ground
+            const groundGrad = roadCtx.createLinearGradient(0, horizon, 0, rh);
+            if (state.weather === 'fog') {
+                groundGrad.addColorStop(0, '#334155');
+                groundGrad.addColorStop(1, '#0f172a');
+            } else {
+                groundGrad.addColorStop(0, '#111827');
+                groundGrad.addColorStop(1, '#030712');
+            }
+            roadCtx.fillStyle = groundGrad;
+            roadCtx.fillRect(0, horizon, rw, rh - horizon);
+
+            // Calculate Lane Lines & Path Perspective
+            const centerX = rw * 0.5 - (state.carX * 40);
+            const vanishX = rw * 0.5 + (Math.sin(state.simTime * 0.3) * 30);
+
+            // Draw Predicted Path Mesh (Openpilot Green/Teal Trajectory Ribbon)
+            roadCtx.beginPath();
+            roadCtx.moveTo(centerX - 160, rh);
+            roadCtx.quadraticCurveTo(centerX - 20, horizon + 50, vanishX - 5, horizon + 10);
+            roadCtx.lineTo(vanishX + 5, horizon + 10);
+            roadCtx.quadraticCurveTo(centerX + 20, horizon + 50, centerX + 160, rh);
+            roadCtx.closePath();
+
+            const pathGrad = roadCtx.createLinearGradient(0, rh, 0, horizon);
+            pathGrad.addColorStop(0, 'rgba(0, 242, 254, 0.35)');
+            pathGrad.addColorStop(0.8, 'rgba(16, 185, 129, 0.25)');
+            pathGrad.addColorStop(1, 'rgba(0, 242, 254, 0.0)');
+            roadCtx.fillStyle = pathGrad;
+            roadCtx.fill();
+
+            // Draw Left & Right Lane Polylines (Model Output Vision Lines)
+            roadCtx.strokeStyle = '#00f2fe';
+            roadCtx.lineWidth = 3;
+            roadCtx.shadowColor = '#00f2fe';
+            roadCtx.shadowBlur = 8;
+
+            // Left Lane
+            roadCtx.beginPath();
+            roadCtx.moveTo(centerX - 220, rh);
+            roadCtx.quadraticCurveTo(centerX - 70, horizon + 50, vanishX - 35, horizon + 10);
+            roadCtx.stroke();
+
+            // Right Lane
+            roadCtx.beginPath();
+            roadCtx.moveTo(centerX + 220, rh);
+            roadCtx.quadraticCurveTo(centerX + 70, horizon + 50, vanishX + 35, horizon + 10);
+            roadCtx.stroke();
+            roadCtx.shadowBlur = 0; // Reset shadow
+
+            // Draw Moving Road Dashes
+            roadCtx.strokeStyle = '#475569';
+            roadCtx.lineWidth = 2;
+            const numDashes = 10;
+            for (let i = 0; i < numDashes; i++) {
+                const progress = ((i * 10 + offsetStep) % 100) / 100;
+                const py = horizon + Math.pow(progress, 2) * (rh - horizon);
+                const pWidth = 10 + progress * 200;
+                const pCenterX = centerX + (vanishX - centerX) * (1 - progress);
+
+                roadCtx.beginPath();
+                roadCtx.moveTo(pCenterX - pWidth, py);
+                roadCtx.lineTo(pCenterX - pWidth + (progress * 15), py + 4);
+                roadCtx.moveTo(pCenterX + pWidth, py);
+                roadCtx.lineTo(pCenterX + pWidth - (progress * 15), py + 4);
+                roadCtx.stroke();
+            }
+
+            // Draw Lead Vehicle in Perspective
+            const leadScale = Math.max(0.2, 1 - (state.leadDistance / 100));
+            const leadY = horizon + Math.pow(leadScale, 1.8) * (rh - horizon - 40);
+            const leadW = 120 * leadScale;
+            const leadH = 70 * leadScale;
+            const leadX = centerX + (vanishX - centerX) * (1 - leadScale) - leadW / 2;
+
+            if (leadY > horizon && leadY < rh) {
+                // Car Body Box
+                roadCtx.fillStyle = '#1e293b';
+                roadCtx.strokeStyle = '#f59e0b';
+                roadCtx.lineWidth = 2;
+                roadCtx.fillRect(leadX, leadY, leadW, leadH);
+                roadCtx.strokeRect(leadX, leadY, leadW, leadH);
+
+                // Tail Lights
+                roadCtx.fillStyle = '#ef4444';
+                roadCtx.fillRect(leadX + 5, leadY + leadH - 12, 12 * leadScale, 8 * leadScale);
+                roadCtx.fillRect(leadX + leadW - (17 * leadScale), leadY + leadH - 12, 12 * leadScale, 8 * leadScale);
+
+                // AI Bounding Box Label
+                roadCtx.fillStyle = '#f59e0b';
+                roadCtx.font = `${Math.max(9, Math.floor(12 * leadScale))}px monospace`;
+                roadCtx.fillText(`LEAD: ${state.leadDistance.toFixed(1)}m`, leadX, leadY - 6);
+            }
+
+            // Heavy Fog Overlay
+            if (state.weather === 'fog') {
+                const fogGrad = roadCtx.createLinearGradient(0, horizon - 20, 0, rh);
+                fogGrad.addColorStop(0, 'rgba(30, 41, 59, 0.85)');
+                fogGrad.addColorStop(1, 'rgba(30, 41, 59, 0.2)');
+                roadCtx.fillStyle = fogGrad;
+                roadCtx.fillRect(0, 0, rw, rh);
+            }
+
+
+            // --- DRAW TOP-DOWN CANVAS ---
+            const tw = topCanvas.width;
+            const th = topCanvas.height;
+            topCtx.fillStyle = '#090d16';
+            topCtx.fillRect(0, 0, tw, th);
+
+            // Center Road Guidelines
+            topCtx.strokeStyle = '#1e293b';
+            topCtx.lineWidth = 1;
+            topCtx.beginPath();
+            topCtx.moveTo(tw / 2 - 30, 0); topCtx.lineTo(tw / 2 - 30, th);
+            topCtx.moveTo(tw / 2 + 30, 0); topCtx.lineTo(tw / 2 + 30, th);
+            topCtx.stroke();
+
+            // Self Ego Car Icon (Bottom Center)
+            const egoX = tw / 2 + (state.carX * 12);
+            const egoY = th - 35;
+            topCtx.fillStyle = '#00f2fe';
+            topCtx.fillRect(egoX - 10, egoY - 18, 20, 36);
+
+            // Planner Predicted Path (Top Down Line)
+            topCtx.strokeStyle = '#10b981';
+            topCtx.lineWidth = 3;
+            topCtx.beginPath();
+            topCtx.moveTo(egoX, egoY);
+            topCtx.quadraticCurveTo(tw / 2 + (Math.sin(state.simTime * 0.3) * 30), th / 2, tw / 2, 20);
+            topCtx.stroke();
+
+            // Lead Car Top-Down Icon
+            const topLeadY = Math.max(20, egoY - (state.leadDistance * 2.2));
+            topCtx.fillStyle = '#f59e0b';
+            topCtx.fillRect(tw / 2 - 10, topLeadY - 15, 20, 30);
+
+
+            // --- DRAW DRIVER MONITORING PIP CANVAS ---
+            const dw = driverCanvas.width;
+            const dh = driverCanvas.height;
+
+            // Camera frame background (Dark infrared style)
+            driverCtx.fillStyle = '#0a101d';
+            driverCtx.fillRect(0, 0, dw, dh);
+
+            // Driver Face Outline Mesh
+            const faceX = dw / 2;
+            const faceY = dh / 2 + 2;
+
+            driverCtx.strokeStyle = state.driverAttentive === 'attentive' ? '#10b981' : (state.driverAttentive === 'distracted' ? '#f59e0b' : '#ef4444');
+            driverCtx.lineWidth = 1.5;
+
+            // Head Ellipse
+            driverCtx.beginPath();
+            driverCtx.ellipse(faceX, faceY, 22, 28, 0, 0, Math.PI * 2);
+            driverCtx.stroke();
+
+            // Gaze Vector / Eyes
+            let eyeOffsetY = 0;
+            if (state.driverAttentive === 'distracted') eyeOffsetY = 8; // Looking down at phone
+            if (state.driverAttentive === 'drowsy') eyeOffsetY = 2;
+
+            // Eyes Points
+            driverCtx.fillStyle = state.driverAttentive === 'drowsy' ? '#ef4444' : '#00f2fe';
+            if (state.driverAttentive !== 'drowsy') {
+                driverCtx.beginPath();
+                driverCtx.arc(faceX - 8, faceY - 4 + eyeOffsetY, 3, 0, Math.PI * 2);
+                driverCtx.arc(faceX + 8, faceY - 4 + eyeOffsetY, 3, 0, Math.PI * 2);
+                driverCtx.fill();
+
+                // Gaze Direction Lines
+                driverCtx.strokeStyle = '#00f2fe';
+                driverCtx.beginPath();
+                driverCtx.moveTo(faceX - 8, faceY - 4 + eyeOffsetY);
+                driverCtx.lineTo(faceX - 8, faceY - 14 + (eyeOffsetY * 2));
+                driverCtx.moveTo(faceX + 8, faceY - 4 + eyeOffsetY);
+                driverCtx.lineTo(faceX + 8, faceY - 14 + (eyeOffsetY * 2));
+                driverCtx.stroke();
+            } else {
+                // Eyes Closed lines
+                driverCtx.beginPath();
+                driverCtx.moveTo(faceX - 11, faceY - 4); driverCtx.lineTo(faceX - 5, faceY - 4);
+                driverCtx.moveTo(faceX + 5, faceY - 4); driverCtx.lineTo(faceX + 11, faceY - 4);
+                driverCtx.stroke();
+            }
+        }
+
+        // Start Animation on Load
+        window.onload = function() {
+            animate();
+        };
+    </script>
+</body>
+</html>
